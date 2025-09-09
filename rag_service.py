@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-import numpy as np
+import math
+import random
 from openai import AzureOpenAI
 import os
 import json
@@ -28,21 +29,32 @@ class VectorStore:
     
     def add_document(self, text: str, embedding: List[float], metadata: dict):
         self.documents.append(text)
-        self.embeddings.append(np.array(embedding))
+        self.embeddings.append(embedding)
         self.metadata.append(metadata)
     
     def search(self, query_embedding: List[float], top_k: int = 5) -> List[Dict]:
         if not self.embeddings:
             return []
         
-        query_vec = np.array(query_embedding)
         scores = []
         
+        # Calculate cosine similarity without numpy
+        def dot_product(a, b):
+            return sum(x * y for x, y in zip(a, b))
+        
+        def magnitude(vec):
+            return math.sqrt(sum(x * x for x in vec))
+        
+        query_mag = magnitude(query_embedding)
+        
         for emb in self.embeddings:
-            score = np.dot(query_vec, emb) / (np.linalg.norm(query_vec) * np.linalg.norm(emb))
+            score = dot_product(query_embedding, emb) / (query_mag * magnitude(emb))
             scores.append(score)
         
-        top_indices = np.argsort(scores)[-top_k:][::-1]
+        # Get top k indices
+        indexed_scores = [(score, i) for i, score in enumerate(scores)]
+        indexed_scores.sort(reverse=True, key=lambda x: x[0])
+        top_indices = [idx for _, idx in indexed_scores[:top_k]]
         
         results = []
         for idx in top_indices:
@@ -122,8 +134,8 @@ def generate_embedding(text: str) -> List[float]:
     
     # Return random embedding for testing if Azure is not configured
     # text-embedding-3-large has 3072 dimensions
-    np.random.seed(hash(text) % (2**32))  # Consistent embeddings for same text
-    return np.random.randn(3072).tolist()
+    random.seed(hash(text) % (2**32))  # Consistent embeddings for same text
+    return [random.gauss(0, 1) for _ in range(3072)]
 
 class ChatRequest(BaseModel):
     messages: List[Dict[str, str]]
